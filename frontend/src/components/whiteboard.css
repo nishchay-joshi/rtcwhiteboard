@@ -1,0 +1,15 @@
+.whiteboard-container {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    padding-top: 40px;
+}
+
+canvas {
+    width: 90vw;
+    height: 80vh;
+    background: white;
+    border: 2px solid #444;
+    display: block;
+    box-sizing: border-box;
+}
