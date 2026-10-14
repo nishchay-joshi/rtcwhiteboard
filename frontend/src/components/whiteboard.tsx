@@ -1,7 +1,7 @@
 import { useRef, useEffect } from "react";
 import "./whiteboard.css";
 import type { Point, Stroke, Rectangle, WhiteboardObject } from "../types/whiteboard";
-
+import { getObjectBounds, isPointInsideBounds, moveObject,} from "../utils/whiteboard";
 
 function Whiteboard() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -13,7 +13,84 @@ function Whiteboard() {
     const activeTool = useRef<"select" | "stroke" | "rectangle">("select");
     const selectedObjectId = useRef<string | null>(null);
     const isDragging = useRef(false);
-    const dragOffset = useRef<Point | null>(null);
+    const lastPointerPosition = useRef<Point | null>(null);
+
+    function drawStroke(stroke: Stroke) {
+        const canvas = canvasRef.current;
+        if (!canvas || stroke.points.length === 0) return;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        ctx.strokeStyle = stroke.color;
+        ctx.lineWidth = stroke.width;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        ctx.beginPath();
+        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+
+        for (let i = 1; i < stroke.points.length; i++) {
+            ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+        }
+
+        ctx.stroke();
+    }
+
+    function drawRectangle(rectangle: Rectangle) {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        ctx.strokeStyle = rectangle.color;
+        ctx.lineWidth = rectangle.lineWidth;
+
+        ctx.strokeRect(
+            rectangle.x,
+            rectangle.y,
+            rectangle.width,
+            rectangle.height
+        );
+    }
+
+    function drawObject(object: WhiteboardObject) {
+        switch (object.type) {
+            case "stroke":
+                drawStroke(object);
+                break;
+            case "rectangle":
+                drawRectangle(object);
+                break;
+        }
+    }
+
+    function drawSelectionBox(object: WhiteboardObject) {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        const bounds = getObjectBounds(object);
+        const padding = 4;
+
+        ctx.save();
+
+        ctx.strokeStyle = "blue";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+
+        ctx.strokeRect(
+            bounds.minX - padding,
+            bounds.minY - padding,
+            bounds.maxX - bounds.minX + padding * 2,
+            bounds.maxY - bounds.minY + padding * 2
+        );
+
+        ctx.restore();
+    }
 
     function renderObjects() {
         const canvas = canvasRef.current;
@@ -27,18 +104,7 @@ function Whiteboard() {
         ctx.clearRect(0, 0, rect.width, rect.height);
 
         for (const object of objects.current) {
-            if (object.type === "stroke") {
-                ctx.strokeStyle = object.color;
-                ctx.lineWidth = object.width;
-                ctx.lineCap = "round";
-                ctx.lineJoin = "round";
-
-                drawStroke(object.points);
-            }
-
-            if (object.type === "rectangle") {
-                drawRectangle(object);
-            }
+            drawObject(object);
         }
 
         const selectedObject = objects.current.find(
@@ -99,124 +165,14 @@ function Whiteboard() {
         };
     }
 
-    function drawStroke(points: Point[]) {
-        const canvas = canvasRef.current;
-        if (!canvas || points.length === 0) return;
-
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        ctx.beginPath();
-        ctx.moveTo(points[0].x, points[0].y);
-
-        for (let i = 1; i < points.length; i++) {
-            ctx.lineTo(points[i].x, points[i].y);
-        }
-
-        ctx.stroke();
-
-    }
-
-    function drawRectangle(rectangle: Rectangle) {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        ctx.strokeStyle = rectangle.color;
-        ctx.lineWidth = rectangle.lineWidth;
-
-        ctx.strokeRect(
-            rectangle.x,
-            rectangle.y,
-            rectangle.width,
-            rectangle.height
-        );
-    }
-
-    function drawSelectionBox(object: WhiteboardObject) {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        if (object.type === "rectangle") {
-            ctx.save();
-
-            ctx.strokeStyle = "blue";
-            ctx.lineWidth = 1;
-            ctx.setLineDash([5, 5]);
-
-            ctx.strokeRect(
-                object.x - 4,
-                object.y - 4,
-                object.width + 8,
-                object.height + 8
-            );
-
-            ctx.restore();
-        }
-
-        if (object.type === "stroke") {
-            const padding = 4;
-
-            const minX = Math.min(...object.points.map(p => p.x)) - padding;
-            const maxX = Math.max(...object.points.map(p => p.x)) + padding;
-            const minY = Math.min(...object.points.map(p => p.y)) - padding;
-            const maxY = Math.max(...object.points.map(p => p.y)) + padding;
-
-            ctx.save();
-
-            ctx.strokeStyle = "blue";
-            ctx.lineWidth = 1;
-            ctx.setLineDash([5, 5]);
-
-            ctx.strokeRect(
-                minX,
-                minY,
-                maxX - minX,
-                maxY - minY
-            );
-
-            ctx.restore();
-        }
-    }
-
     function findObjectAtPoint(point: Point): WhiteboardObject | null {
+        const padding = 8;
+
         for (let i = objects.current.length - 1; i >= 0; i--) {
             const object = objects.current[i];
 
-            if (object.type === "rectangle") {
-                const inside =
-                    point.x >= object.x &&
-                    point.x <= object.x + object.width &&
-                    point.y >= object.y &&
-                    point.y <= object.y + object.height;
-
-                if (inside) {
-                    return object;
-                }
-            }
-
-            if (object.type === "stroke") {
-                const padding = 8;
-
-                const minX = Math.min(...object.points.map(p => p.x)) - padding;
-                const maxX = Math.max(...object.points.map(p => p.x)) + padding;
-                const minY = Math.min(...object.points.map(p => p.y)) - padding;
-                const maxY = Math.max(...object.points.map(p => p.y)) + padding;
-
-                const inside =
-                    point.x >= minX &&
-                    point.x <= maxX &&
-                    point.y >= minY &&
-                    point.y <= maxY;
-
-                if (inside) {
-                    return object;
-                }
+            if (isPointInsideBounds(point, object, padding)) {
+                return object;
             }
         }
 
@@ -238,20 +194,7 @@ function Whiteboard() {
 
             selectedObjectId.current = object.id;
             isDragging.current = true;
-
-            if (object.type === "rectangle") {
-                dragOffset.current = {
-                    x: point.x - object.x,
-                    y: point.y - object.y,
-                };
-            }
-
-            if (object.type === "stroke") {
-                dragOffset.current = {
-                    x: point.x,
-                    y: point.y,
-                };
-            }
+            lastPointerPosition.current = point;
 
             renderObjects();
             return;
@@ -292,7 +235,7 @@ function Whiteboard() {
         if (activeTool.current === "select") {
             if (!isDragging.current) return;
             if (!selectedObjectId.current) return;
-            if (!dragOffset.current) return;
+            if (!lastPointerPosition.current) return;
 
             const object = objects.current.find(
                 object => object.id === selectedObjectId.current
@@ -300,25 +243,12 @@ function Whiteboard() {
 
             if (!object) return;
 
-            if (object.type === "rectangle") {
-                object.x = point.x - dragOffset.current.x;
-                object.y = point.y - dragOffset.current.y;
-            }
+            const dx = point.x - lastPointerPosition.current.x;
+            const dy = point.y - lastPointerPosition.current.y;
 
-            if (object.type === "stroke") {
-                const dx = point.x - dragOffset.current.x;
-                const dy = point.y - dragOffset.current.y;
+            moveObject(object, dx, dy);
 
-                for (const strokePoint of object.points) {
-                    strokePoint.x += dx;
-                    strokePoint.y += dy;
-                }
-
-                dragOffset.current = {
-                    x: point.x,
-                    y: point.y,
-                };
-            }
+            lastPointerPosition.current = point;
 
             renderObjects();
             return;
@@ -330,7 +260,7 @@ function Whiteboard() {
             if (!currentStroke.current) return;
 
             currentStroke.current.points.push(point);
-            drawStroke(currentStroke.current.points);
+            drawStroke(currentStroke.current);
         }
 
         if (activeTool.current === "rectangle") {
@@ -353,7 +283,7 @@ function Whiteboard() {
     function handlePointerUp() {
         if (activeTool.current === "select") {
             isDragging.current = false;
-            dragOffset.current = null;
+            lastPointerPosition.current = null;
             return;
         }
 
